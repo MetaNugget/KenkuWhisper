@@ -1,0 +1,27 @@
+[project]
+name = "kenku-stt"
+version = "0.1.0"
+description = "GPU-side real-time speech-to-text server for KenkuMimic"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "faster-whisper>=1.0",
+  "onnxruntime>=1.18",
+  "numpy>=1.26",
+  "pydantic-settings>=2.4",
+  "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

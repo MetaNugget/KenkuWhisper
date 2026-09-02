@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import numpy as np
 from fastapi import WebSocket, WebSocketDisconnect
@@ -6,8 +7,10 @@ from fastapi import WebSocket, WebSocketDisconnect
 from .audio import pcm16le_to_float32
 from .protocol import TranscriptMessage
 from .segmenter import BufferConfig, BurstBuffer
-from .vad import SileroVAD, SileroVADModel, contains_speech
+from .vad import SileroVAD, SileroVADModel, contains_speech_async
 from .whisper_engine import WhisperEngine
+
+logger = logging.getLogger(__name__)
 
 
 class TranscriptionSession:
@@ -65,9 +68,19 @@ class TranscriptionSession:
             # socket may already be unwritable if the client closed abruptly
 
     async def _process(self, audio: np.ndarray) -> None:
-        if not contains_speech(self._vad, audio, self._min_speech_ms):
+        if not await contains_speech_async(self._vad, audio, self._min_speech_ms):
             return
         transcript = await self._engine.transcribe(audio)
         if not transcript:
             return
-        await self._ws.send_text(TranscriptMessage(transcript, final=True).to_json())
+        message = TranscriptMessage(transcript, final=True).to_json()
+        try:
+            await self._ws.send_text(message)
+        except RuntimeError:
+            # send_text on a socket whose peer already disconnected raises
+            # RuntimeError, not WebSocketDisconnect (that's only raised on
+            # receive) -- so it isn't caught by run()'s except clause and
+            # would otherwise escape as an unhandled traceback, silently
+            # dropping the transcript. Sending after the peer closed is a
+            # protocol violation, not a transient failure, so don't retry.
+            logger.warning("Dropped transcript, peer already disconnected: %r", transcript)

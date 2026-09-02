@@ -1,3 +1,10 @@
+# This tag's unversioned "-cudnn-" suffix bundles cuDNN 9.x, which is what
+# the pinned faster-whisper/ctranslate2 versions in pyproject.toml require
+# (ctranslate2 4.5+ needs cuDNN 9; earlier releases needed cuDNN 8 and a
+# "-cudnnN-" tagged base image instead). If either pin set changes, re-check
+# this coupling before assuming a plain version bump is safe -- a mismatch
+# fails at first inference, as a libcudnn_ops_infer.so load error, well
+# after the pod has already started billing.
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \

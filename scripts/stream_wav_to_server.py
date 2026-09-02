@@ -3,7 +3,11 @@
 real-time pace and prints incoming transcript messages.
 
 Usage:
-    python scripts/stream_wav_to_server.py path/to/audio.wav [ws://localhost:8000/transcribe?sample_rate=16000]
+    python scripts/stream_wav_to_server.py path/to/audio.wav [url] [token]
+
+    url defaults to ws://localhost:8000/transcribe?sample_rate=16000
+    token is appended as ?token=... (or &token=... if the url already has a
+    query string) and only needs to be passed if the server has AUTH_TOKEN set.
 
 The input WAV must already be 16kHz mono 16-bit PCM (matching exactly what
 the KenkuMimic bot sends in production). Convert with ffmpeg if needed:
@@ -13,11 +17,18 @@ the KenkuMimic bot sends in production). Convert with ffmpeg if needed:
 import asyncio
 import sys
 import wave
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import websockets
 
 DEFAULT_URL = "ws://localhost:8000/transcribe?sample_rate=16000"
 CHUNK_MS = 100
+
+
+def _with_token(url: str, token: str) -> str:
+    parts = urlsplit(url)
+    query = f"{parts.query}&{urlencode({'token': token})}" if parts.query else urlencode({"token": token})
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
 
 
 async def stream(wav_path: str, url: str) -> None:
@@ -62,6 +73,8 @@ def main() -> None:
 
     wav_path = sys.argv[1]
     url = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_URL
+    if len(sys.argv) > 3:
+        url = _with_token(url, sys.argv[3])
     asyncio.run(stream(wav_path, url))
 
 

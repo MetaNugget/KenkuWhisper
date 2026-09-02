@@ -1,5 +1,7 @@
+import asyncio
 import os
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -34,11 +36,20 @@ class SileroVADModel:
     in SileroVAD below, not here.
     """
 
-    def __init__(self, model_path: Path | None = None) -> None:
+    def __init__(self, model_path: Path | None = None, max_workers: int = 2) -> None:
         resolved = _ensure_model(model_path or _DEFAULT_MODEL_PATH)
         self._session = ort.InferenceSession(
             str(resolved), providers=["CPUExecutionProvider"]
         )
+        # Separate from WhisperEngine's GPU pool: the worst case for
+        # contains_speech() below is a full MAX_SEGMENT_MS burst of pure
+        # noise that never trips the speech threshold (~937 window
+        # inferences), and that shouldn't be able to starve transcription
+        # or any other connected speaker's receive loop/inactivity timer.
+        self.pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="vad")
+
+    def shutdown(self) -> None:
+        self.pool.shutdown(wait=True)
 
     def run(
         self, audio_input: np.ndarray, state: np.ndarray, sr: np.ndarray
@@ -97,3 +108,13 @@ def contains_speech(vad: SileroVAD, audio: np.ndarray, min_speech_ms: float) -> 
         if speech_ms >= min_speech_ms:
             return True
     return False
+
+
+async def contains_speech_async(vad: SileroVAD, audio: np.ndarray, min_speech_ms: float) -> bool:
+    """Event-loop-safe wrapper around contains_speech() -- runs it on
+    vad's model's own thread pool instead of blocking the asyncio loop
+    thread. See SileroVADModel's pool for why that pool is separate from
+    WhisperEngine's.
+    """
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(vad._model.pool, contains_speech, vad, audio, min_speech_ms)

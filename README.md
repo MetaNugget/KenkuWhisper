@@ -10,12 +10,18 @@ orchestration client (`TRANSCRIPTION_PROVIDER=selfhosted` in the bot's
 This server implements a protocol already frozen by the bot's client
 (`KenkuMimic/lib/transcription/selfhosted.js`) — do not change it here.
 
-- `ws://<host>:8000/transcribe?sample_rate=16000`
+- `ws://<host>:8000/transcribe?sample_rate=16000&token=<AUTH_TOKEN>`
 - One WebSocket connection per speaker. Client sends raw 16kHz mono PCM16LE
   binary frames, no envelope.
 - Server sends JSON text messages: `{"transcript": "...", "final": true}` once
   per detected utterance. There are no partial/interim messages in v1.
-- No auth/TLS — RunPod's private networking is the trust boundary.
+- No TLS. Auth is a shared-secret `token` query param checked against
+  `AUTH_TOKEN` (`hmac.compare_digest`, connection closed with code 1008 on
+  mismatch) — **not** RunPod's private networking, which isn't actually the
+  trust boundary here: the bot runs on a home Raspberry Pi outside RunPod's
+  network, so it connects over RunPod's *public* port mapping. An unset
+  `AUTH_TOKEN` leaves `/transcribe` open to anyone who finds the address;
+  only acceptable for local development.
 
 ### Utterance boundaries: message gaps, not in-audio silence
 
@@ -103,10 +109,13 @@ concurrent connections don't cross-contaminate transcripts.
    - **Container Image**: `<your-registry>/kenku-stt:latest`
    - **Container Disk**: a few GB is enough (model weights are baked into
      the image, not downloaded at runtime)
-   - **Expose HTTP/TCP Ports**: `8000` — the bot's orchestration client
-     (`KenkuMimic/lib/transcription/selfhosted.js`) looks for a pod port
-     with `private === 8000` and maps to whatever public port RunPod
-     assigns; nothing in this server needs to know about that mapping.
+   - **Expose TCP Ports**: `8000/tcp` — **not** an HTTP port. The bot opens
+     a raw WebSocket directly to `ip:publicPort`; it does not go through
+     RunPod's HTTP edge proxy. If registered as HTTP instead, RunPod may
+     route it through that proxy and the runtime port entry's `public`
+     field can come back null, which makes the bot's `port?.public` check
+     never pass — it'll poll for the full 5 minutes and time out with no
+     indication this was the cause.
    - **Environment Variables**: only needed if you want non-default values
      from `.env.example` (e.g. a different `WHISPER_MODEL_SIZE`) — every
      setting has a working default.
@@ -128,8 +137,16 @@ concurrent connections don't cross-contaminate transcripts.
 `INACTIVITY_TIMEOUT_MS` (default 400ms) is a reasoned default, not measured
 against real Discord session audio — if utterances feel like they're
 splitting mid-sentence too often (e.g. from network jitter between packets),
-raise it, but keep real margin under the client's 1000ms/1500ms teardown
-timers described above or finals will stop being deliverable. `MAX_SEGMENT_MS`
-(default 30s) forces a `final: true` on an unusually long, uninterrupted
-burst even without a message gap, since the client only ever consumes
-finals. See `.env.example` for the full set of tunables.
+raise it. The real constraint this timer sits inside isn't simple ordering
+against the client's teardown timers (the client now holds its self-hosted
+WebSocket open for 10s of trailing silence specifically to give this server
+room, since the pod bills by wall-clock regardless of an idle socket) — it's
+that VAD + Whisper + the send back must complete before whichever client-side
+timer is shortest. That's normally well inside budget for a several-second
+utterance, but watch for it on the first inference of a session (CUDA kernel
+autotuning) and on any moment several speakers finalize at once and queue
+behind `WHISPER_NUM_WORKERS`. `session.py` logs and drops a transcript rather
+than crashing if a send loses that race — see `_process`/`_finalize`.
+`MAX_SEGMENT_MS` (default 30s) forces a `final: true` on an unusually long,
+uninterrupted burst even without a message gap, since the client only ever
+consumes finals. See `.env.example` for the full set of tunables.

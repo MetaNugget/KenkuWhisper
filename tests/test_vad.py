@@ -3,7 +3,7 @@ import urllib.error
 import numpy as np
 import pytest
 
-from kenku_stt.vad import SAMPLE_RATE, WINDOW_SAMPLES, SileroVAD, SileroVADModel, contains_speech
+from kenku_stt.vad import CONTEXT_SAMPLES, SAMPLE_RATE, WINDOW_SAMPLES, SileroVAD, SileroVADModel, contains_speech
 
 
 @pytest.fixture(scope="module")
@@ -40,11 +40,17 @@ def test_independent_instances_do_not_share_state(vad_model: SileroVADModel):
     vad_a = SileroVAD(vad_model, threshold=0.5)
     vad_b = SileroVAD(vad_model, threshold=0.5)
     speech_like = np.full(WINDOW_SAMPLES, 0.8, dtype=np.float32)
+    silence = np.zeros(WINDOW_SAMPLES, dtype=np.float32)
 
     vad_a.speech_probability(speech_like)
+    vad_b.speech_probability(silence)
 
-    # vad_b's context/state must be untouched by vad_a's calls
-    assert np.all(vad_b._context == 0)
+    # Each instance's context must reflect only its own calls, not the
+    # other's -- a shared SileroVADModel session is stateless per the call,
+    # so this only holds if SileroVAD itself isn't leaking state sideways.
+    assert np.array_equal(vad_a._context, speech_like[-CONTEXT_SAMPLES:])
+    assert np.array_equal(vad_b._context, silence[-CONTEXT_SAMPLES:])
+    assert not np.array_equal(vad_a._context, vad_b._context)
 
 
 def test_contains_speech_false_for_pure_silence(vad_model: SileroVADModel):

@@ -4,12 +4,20 @@ version = "0.1.0"
 description = "GPU-side real-time speech-to-text server for KenkuMimic"
 requires-python = ">=3.10"
 dependencies = [
-  "fastapi>=0.115",
-  "uvicorn[standard]>=0.30",
-  "faster-whisper>=1.0",
-  "onnxruntime>=1.18",
-  "numpy>=1.26",
-  "pydantic-settings>=2.4",
+  # Pinned exactly, not floored: a floor here lets a routine rebuild months
+  # from now silently pull a faster-whisper/ctranslate2 release that needs a
+  # different cuDNN major version than the Dockerfile's CUDA base image
+  # ships, which fails as a `libcudnn_ops_infer.so.8`-style load error at
+  # first inference -- i.e. after the pod is already billing. See the
+  # Dockerfile comment above the base image line for the cuDNN coupling this
+  # pin set assumes.
+  "fastapi==0.141.1",
+  "uvicorn[standard]==0.52.4",
+  "faster-whisper==1.2.1",
+  "ctranslate2==4.8.2",  # transitive via faster-whisper; pinned explicitly, see above
+  "onnxruntime==1.29.0",
+  "numpy==2.4.6",
+  "pydantic-settings==2.15.0",
   "websockets>=12.0",
 ]
 
@@ -25,3 +33,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

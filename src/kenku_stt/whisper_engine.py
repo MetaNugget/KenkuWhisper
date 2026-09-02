@@ -16,6 +16,7 @@ class WhisperEngine:
 
     def __init__(self, settings: Settings) -> None:
         self._language = settings.whisper_language
+        self._initial_prompt = settings.whisper_initial_prompt or None
         self._model = WhisperModel(
             settings.whisper_model_size,
             device=settings.whisper_device,
@@ -37,7 +38,13 @@ class WhisperEngine:
             beam_size=1,
             condition_on_previous_text=False,
             word_timestamps=False,
-            vad_filter=True,
+            initial_prompt=self._initial_prompt,
+            # session.py's contains_speech() has already gated this audio on
+            # Silero VAD. A second, independent VAD pass here is wasted work,
+            # and faster-whisper's own min_speech_duration_ms default can
+            # swallow exactly the short utterances ("Yes.", "I attack.") that
+            # matter most in a TTRPG transcript.
+            vad_filter=False,
         )
         return "".join(segment.text for segment in segments).strip()
 

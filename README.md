@@ -33,13 +33,18 @@ for quiet samples the way a continuous-stream transcriber would. Instead,
 (`INACTIVITY_TIMEOUT_MS`, default 400ms) as the utterance boundary, buffering
 raw audio in `src/kenku_stt/segmenter.py`'s `BurstBuffer` until either that
 timeout fires or `MAX_SEGMENT_MS` forces a cutoff on an unusually long
-uninterrupted burst. This timeout has to stay comfortably under two timers
-on the client side — its Discord capture pipeline closes an utterance's
-opus stream after 1000ms of no packets, and `speakerPool.js` closes the
-WebSocket entirely after 1500ms of no `send()` calls — so the finalized
-transcript can be sent back over the connection while it's still open;
-trying to send after the client has closed the socket is a hard WebSocket
-protocol violation, not something retryable.
+uninterrupted burst. This timeout has to stay comfortably under the
+client-side timer that actually applies to *this server*: the bot's
+`speakerPool.js` holds a self-hosted connection open for 10000ms
+(`TRAILING_SILENCE_MS` in `selfhosted.js`) of no `send()` calls before
+closing it — deliberately wide, since the pod bills by wall-clock regardless
+of an idle socket. (`speakerPool.js`'s 1500ms default only applies to the
+deepgram/assemblyai adapters, which never connect to this server, so it's
+not a number this server needs to race against.) The finalized transcript
+has to make it back over the connection while it's still open; trying to
+send after the client has closed the socket is a hard WebSocket protocol
+violation, not something retryable — see `session.py`'s handling of that in
+`_process`.
 
 Silero VAD is still used, but only as a one-shot content filter
 (`contains_speech()` in `src/kenku_stt/vad.py`) run once per finalized

@@ -41,7 +41,12 @@ async def health() -> dict:
 async def transcribe(websocket: WebSocket) -> None:
     if settings.auth_token:
         token = websocket.query_params.get("token", "")
-        if not hmac.compare_digest(token, settings.auth_token):
+        # compare_digest only accepts str arguments when both are pure ASCII
+        # -- token comes straight off the query string and is fully
+        # attacker-controlled, so comparing as bytes avoids a TypeError (and
+        # an unhandled-traceback close instead of a clean 1008) on any
+        # non-ASCII token.
+        if not hmac.compare_digest(token.encode("utf-8"), settings.auth_token.encode("utf-8")):
             await websocket.close(code=1008)
             return
 

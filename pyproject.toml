@@ -18,13 +18,16 @@ dependencies = [
   "onnxruntime==1.29.0",
   "numpy==2.4.6",
   "pydantic-settings==2.15.0",
-  "websockets>=12.0",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",
   "pytest-asyncio>=0.24",
+  # Only used by scripts/stream_wav_to_server.py -- the server itself gets
+  # its own copy transitively via uvicorn[standard], so this doesn't belong
+  # in the runtime/Docker image dependency set.
+  "websockets>=12.0",
 ]
 
 [build-system]
